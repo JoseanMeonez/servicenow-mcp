@@ -5,3 +5,4 @@ dist/
 coverage/
 instances/
 graphify-out/
+.atl/
