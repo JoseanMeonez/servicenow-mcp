@@ -1,15 +1,20 @@
 {
   "mcpServers": {
-    "servicenow-mcp": {
+    "servicenow-dev": {
       "type": "stdio",
       "command": "node",
-      "args": ["C:/Users/andym/Documents/GitHub/servicenow-mcp/dist/index.js"],
-      "env": {
-        "SN_BASE_URL": "https://dev12345.service-now.com",
-        "SN_USERNAME": "admin",
-        "SN_PASSWORD": "changeme",
-        "SN_MCP_ALLOW_WRITES": "false"
-      }
+      "args": [
+        "--env-file=C:/Users/you/servicenow-mcp/instances/dev.env",
+        "C:/Users/you/servicenow-mcp/dist/index.js"
+      ]
+    },
+    "servicenow-prod": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "--env-file=C:/Users/you/servicenow-mcp/instances/prod.env",
+        "C:/Users/you/servicenow-mcp/dist/index.js"
+      ]
     }
   }
 }

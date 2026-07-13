@@ -49,6 +49,54 @@ claude mcp add servicenow-mcp -- node C:/Users/you/path/to/servicenow-mcp/dist/i
 
 or copy `.mcp.json.example` into your project's `.mcp.json` and adjust path + env.
 
+## Multiple instances
+
+The recommended pattern is **one server process per instance**, each declared as its own
+entry in `.mcp.json` and pointed at a per-instance profile file via Node's native
+`--env-file` flag (before the script path):
+
+```json
+{
+  "mcpServers": {
+    "servicenow-dev": {
+      "command": "node",
+      "args": ["--env-file=/path/to/instances/dev.env", "/path/to/dist/index.js"]
+    },
+    "servicenow-prod": {
+      "command": "node",
+      "args": ["--env-file=/path/to/instances/prod.env", "/path/to/dist/index.js"]
+    }
+  }
+}
+```
+
+Node fails fast if the profile file is missing, and real environment variables take
+precedence over file values.
+
+Why per-process instead of one multi-tenant server:
+
+- **Zero shared state.** The server holds no caches and no sessions (see below); separate
+  processes make cross-instance leakage structurally impossible, not just avoided.
+- **Per-instance write policy.** A prod profile with `SN_MCP_ALLOW_WRITES=false` (or simply
+  omitting it) never even registers write tools — the client cannot call what does not exist.
+- **Clear tool naming.** Tools surface as `mcp__servicenow-dev__*` vs `mcp__servicenow-prod__*`,
+  so it is always explicit which instance a call targets.
+- **Independent rate limits.** ServiceNow enforces inbound REST rate limits per user per
+  instance, so parallel processes against different instances never interact.
+
+Keep profile files (e.g. `instances/*.env`) out of git — the `.gitignore` already excludes
+`.env` and `instances/`.
+
+### Statelessness guarantees
+
+- No record, schema, or token caching — every tool call hits the instance fresh.
+- Basic Auth header is computed per request; response cookies are ignored (no cookie jar),
+  so no ServiceNow session is retained between calls.
+- The write gate re-reads your current update set from the instance on every write.
+
+If a metadata cache (e.g. table schemas) ever becomes worth it, it should be explicit,
+on-disk, and per-instance — never implicit in-process memory.
+
 ## Tools
 
 Read tools (always registered):

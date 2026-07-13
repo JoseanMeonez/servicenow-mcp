@@ -5,7 +5,8 @@ import { SnClient } from './client/snClient.js';
 import { buildServer } from './server.js';
 
 try {
-  // Optional .env in cwd for local development; MCP clients usually pass env directly.
+  // Optional .env in cwd for local development. For per-instance profiles use
+  // Node's native flag instead: node --env-file=instances/dev.env dist/index.js
   try {
     process.loadEnvFile();
   } catch {
