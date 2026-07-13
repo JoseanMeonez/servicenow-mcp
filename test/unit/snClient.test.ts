@@ -118,6 +118,24 @@ describe('SnClient retry behavior', () => {
 });
 
 describe('SnClient error normalization', () => {
+  it('appends the instance-user-setup hint on 401 JSON errors', async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse(
+        {
+          error: {
+            message: 'User is not authenticated',
+            detail: 'Required to provide Auth information',
+          },
+        },
+        401,
+      ),
+    );
+    await expect(clientWith(fetchFn).queryTable('incident')).rejects.toMatchObject({
+      status: 401,
+      detail: expect.stringContaining('snc_basic_auth_api_access'),
+    });
+  });
+
   it('flags non-JSON error bodies as a possible SSO/MFA redirect', async () => {
     const fetchFn = vi.fn(async () => new Response('<html>login</html>', { status: 401 }));
     await expect(clientWith(fetchFn).queryTable('incident')).rejects.toThrow(/SSO\/MFA redirect/);

@@ -41,6 +41,22 @@ when present — see `.env.example`):
 Changing `SN_MCP_ALLOW_WRITES` requires restarting the MCP server process — tools are
 registered at startup, not per call.
 
+## Instance user setup (required per instance)
+
+Recent ServiceNow releases do **not** accept Basic Auth on the REST API by default. For every
+instance you connect, the user in `SN_USERNAME` must be set up as follows:
+
+1. **Roles**: grant `snc_basic_auth_api_access` (mandatory for Basic Auth REST access) plus
+   the roles needed for the tables you will touch. On a personal dev instance `admin` is fine;
+   at work prefer least-privilege roles over `admin`.
+2. **Integration user flag**: on the `sys_user` record, set `internal_integration_user = true`.
+3. **Recommended**: use a dedicated integration user (e.g. `api.tester`), never a personal or
+   the `admin` account, so API access can be rotated or revoked independently.
+
+Symptom when this is missing: every request fails with
+`401 "User is not authenticated"` even though the credentials are correct. The server's error
+output includes this hint automatically on 401 responses.
+
 ## Register with Claude Code
 
 ```bash

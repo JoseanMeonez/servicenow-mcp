@@ -134,10 +134,18 @@ export class SnClient {
     const text = await res.text();
     try {
       const body = JSON.parse(text) as { error?: { message?: string; detail?: string } };
+      let detail = body.error?.detail ?? undefined;
+      if (res.status === 401) {
+        const hint =
+          'If the credentials are correct, verify the instance user setup: the user needs the ' +
+          '"snc_basic_auth_api_access" role and internal_integration_user=true (see README, ' +
+          '"Instance user setup").';
+        detail = detail ? `${detail} — ${hint}` : hint;
+      }
       return new SnApiError({
         status: res.status,
         message: body.error?.message ?? res.statusText ?? `HTTP ${res.status}`,
-        detail: body.error?.detail ?? undefined,
+        detail,
       });
     } catch {
       return new SnApiError({
