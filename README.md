@@ -65,6 +65,29 @@ claude mcp add servicenow-mcp -- node C:/Users/you/path/to/servicenow-mcp/dist/i
 
 or copy `.mcp.json.example` into your project's `.mcp.json` and adjust path + env.
 
+## Register with Claude Desktop
+
+Claude Desktop uses a different config file than Claude Code:
+`%APPDATA%\Claude\claude_desktop_config.json` (Windows). Add under `mcpServers`, using the
+full path to `node.exe` (Desktop may not inherit your shell PATH):
+
+```json
+{
+  "mcpServers": {
+    "servicenow-dev": {
+      "command": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "--env-file=C:/path/to/servicenow-mcp/instances/dev.env",
+        "C:/path/to/servicenow-mcp/dist/index.js"
+      ]
+    }
+  }
+}
+```
+
+Then fully quit Claude Desktop (system tray → Quit, not just closing the window) and
+reopen it — the config is only read at startup.
+
 ## Multiple instances
 
 The recommended pattern is **one server process per instance**, each declared as its own
