@@ -21,6 +21,7 @@
     "test:watch": "vitest",
     "test:live": "vitest run test/live",
     "inspect": "npx @modelcontextprotocol/inspector node dist/index.js",
+    "add-instance": "node scripts/add-instance.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

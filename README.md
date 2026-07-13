@@ -100,6 +100,13 @@ Why per-process instead of one multi-tenant server:
 - **Independent rate limits.** ServiceNow enforces inbound REST rate limits per user per
   instance, so parallel processes against different instances never interact.
 
+To add a new instance in one step, use the helper — it writes the profile file with correct
+password quoting and prints the registration command:
+
+```bash
+npm run add-instance -- work https://mycompany.service-now.com api.integration 'the-password'
+```
+
 Keep profile files (e.g. `instances/*.env`) out of git — the `.gitignore` already excludes
 `.env` and `instances/`.
 
