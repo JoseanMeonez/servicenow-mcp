@@ -5,7 +5,8 @@ Aggregate, and schema APIs as tools, with an **in-process update-set write gate*
 are only registered when explicitly enabled, and every write is refused while your current
 update set is "Default".
 
-Works with Claude Code, Claude Desktop, and any other MCP client (stdio transport).
+Works with Claude Code, Claude Desktop, Antigravity CLI, opencode, GitHub Copilot CLI,
+GitHub Copilot in VS Code, and any other MCP client (stdio transport).
 
 ## Requirements
 
@@ -87,6 +88,127 @@ full path to `node.exe` (Desktop may not inherit your shell PATH):
 
 Then fully quit Claude Desktop (system tray → Quit, not just closing the window) and
 reopen it — the config is only read at startup.
+
+## Register with Antigravity CLI
+
+Antigravity CLI's MCP config lives at `~/.gemini/antigravity-cli/mcp_config.json` (it shares
+the Gemini CLI config layout, not `~/.antigravitycli`). Add under `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "servicenow-dev": {
+      "command": "node",
+      "args": [
+        "--env-file=C:/path/to/servicenow-mcp/instances/dev.env",
+        "C:/path/to/servicenow-mcp/dist/index.js"
+      ]
+    }
+  }
+}
+```
+
+Start a new Antigravity CLI session afterward — config is only read at startup, an existing
+session won't pick it up.
+
+**Prompt to hand to Antigravity CLI** (or any agent with file-edit access) to do this for you:
+
+> Add a new entry under `mcpServers` in `~/.gemini/antigravity-cli/mcp_config.json` named
+> `servicenow-<instance>`, pointing to `node` with args
+> `--env-file=<absolute path to instances/<instance>.env>` and
+> `<absolute path to dist/index.js>`. Keep existing entries intact. Then tell me to start a
+> new session for it to take effect.
+
+## Register with opencode
+
+Add under `mcp` in `~/.config/opencode/opencode.json` (or your project's `opencode.json`):
+
+```json
+{
+  "mcp": {
+    "servicenow-dev": {
+      "enabled": true,
+      "type": "local",
+      "command": [
+        "node",
+        "--env-file=C:/path/to/servicenow-mcp/instances/dev.env",
+        "C:/path/to/servicenow-mcp/dist/index.js"
+      ]
+    }
+  }
+}
+```
+
+Note the command and its args live together in a single array (unlike Claude's
+`command`/`args` split).
+
+**Prompt to hand to opencode:**
+
+> Add a new entry under `mcp` in `~/.config/opencode/opencode.json` named
+> `servicenow-<instance>`, with `"type": "local"`, `"enabled": true`, and `command` as an
+> array: `["node", "--env-file=<absolute path to instances/<instance>.env>", "<absolute path
+> to dist/index.js>"]`. Keep existing entries intact.
+
+## Register with GitHub Copilot CLI
+
+Copilot CLI's config lives at `~/.copilot/mcp-config.json` (override via `COPILOT_HOME`).
+Add under `mcpServers`, with an explicit `"type": "stdio"`:
+
+```json
+{
+  "mcpServers": {
+    "servicenow-dev": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "--env-file=C:/path/to/servicenow-mcp/instances/dev.env",
+        "C:/path/to/servicenow-mcp/dist/index.js"
+      ],
+      "env": {}
+    }
+  }
+}
+```
+
+Or from the terminal: `copilot mcp add` (interactive), then verify with `/mcp show` inside a
+Copilot CLI session.
+
+**Prompt to hand to Copilot CLI:**
+
+> Add a new entry under `mcpServers` in `~/.copilot/mcp-config.json` named
+> `servicenow-<instance>`, with `"type": "stdio"`, `command: "node"`, and args
+> `["--env-file=<absolute path to instances/<instance>.env>", "<absolute path to
+> dist/index.js>"]`. Keep existing entries intact. Then run `/mcp show` to confirm it loaded.
+
+## Register with GitHub Copilot in VS Code
+
+VS Code Copilot uses `.vscode/mcp.json` in the workspace (commit it to share with your team),
+with the root key `servers` — **not** `mcpServers` like the other clients:
+
+```json
+{
+  "servers": {
+    "servicenow-dev": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "--env-file=C:/path/to/servicenow-mcp/instances/dev.env",
+        "C:/path/to/servicenow-mcp/dist/index.js"
+      ]
+    }
+  }
+}
+```
+
+Saving the file with valid JSON restarts the Copilot agent and reloads servers automatically
+— no full VS Code restart needed.
+
+**Prompt to hand to Copilot Chat in VS Code:**
+
+> Create or update `.vscode/mcp.json` in this workspace: add an entry under `servers` (not
+> `mcpServers`) named `servicenow-<instance>`, with `"type": "stdio"`, `command: "node"`, and
+> args `["--env-file=<absolute path to instances/<instance>.env>", "<absolute path to
+> dist/index.js>"]`. Keep existing entries intact.
 
 ## Multiple instances
 
