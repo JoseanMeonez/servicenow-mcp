@@ -18,7 +18,12 @@ as tools, with an in-process update-set write gate. TypeScript ESM, `@modelconte
 | `src/errors.ts`          | `SnApiError` + `toToolErrorResult()` — the only place tool error results are shaped                                             |
 | `src/client/auth.ts`     | `AuthStrategy` = function returning headers. v1: `basicAuth`. Extend here for OAuth/session                                     |
 | `src/client/snClient.ts` | REST client: retry (429/5xx, Retry-After), pagination (Link/X-Total-Count), timeout, error normalization, schema hierarchy walk |
-| `src/gate.ts`            | `getCurrentUpdateSet` / `assertWritable` / `setCurrentUpdateSet` — the write gate                                               |
+| `src/gate.ts`            | `getCurrentUpdateSet` / `assertWritable` / `setCurrentUpdateSet` / `assertPrecheckToken` — the write gate                       |
+| `src/docs/token.ts`      | HMAC-SHA256 precheck token sign/verify (`node:crypto`, per-process secret, ~10 min TTL)                                         |
+| `src/docs/precheck.ts`   | `analyzePrecheck(table, operation)` — risk rules + best-practice matching + token issuance                                      |
+| `src/docs/llmsIndex.ts`  | Fetch/parse/search the `ServiceNow/ServiceNowDocs` `llms.txt` index (injectable `fetchFn`)                                      |
+| `src/docs/fetchDoc.ts`   | Fetch a single doc's markdown by path, with attribution and structured errors (injectable `fetchFn`)                            |
+| `src/docs/bestPractices/*.ts` | Curated, authored-in-repo best-practice content (`BEST_PRACTICES: BestPracticeEntry[]`)                                    |
 | `src/tools/*.ts`         | One module per domain; each exports `register*Tools(server, client, cfg)`                                                       |
 | `src/server.ts`          | `buildServer(cfg, client)`: read tools always; write tools ONLY when `cfg.allowWrites`                                          |
 | `test/unit/`             | Unit tests with injected fake `fetch` (no network)                                                                              |
@@ -30,10 +35,13 @@ as tools, with an in-process update-set write gate. TypeScript ESM, `@modelconte
 1. **stdout is the MCP protocol channel.** Nothing in `src/` may write to stdout —
    no `console.log`, no `process.stdout.write`. Diagnostics go to `process.stderr.write`.
    ESLint enforces `no-console` on `src/**`.
-2. **Write safety is layered and both layers stay.** (a) Write tools are registered only
+2. **Write safety is layered and layers stay in order.** (a) Write tools are registered only
    when `SN_MCP_ALLOW_WRITES=true`; (b) every write handler calls `assertWritable()` first,
-   which refuses while the current update set is "Default". Never remove, reorder, or
-   short-circuit either layer. `servicenow_delete_record` keeps `confirm: z.literal(true)`.
+   which refuses while the current update set is "Default"; (c) `assertPrecheckToken()` runs
+   immediately after `assertWritable()` — a no-op unless `SN_MCP_REQUIRE_DOCS_PRECHECK=true`,
+   in which case it requires a valid, unexpired, table/operation-matching token for
+   medium/high-risk writes and all deletes. Never remove, reorder, or short-circuit any layer.
+   `servicenow_delete_record` keeps `confirm: z.literal(true)`.
 3. **No hidden state.** The server holds no caches, no sessions, no cross-call memory.
    If a cache is ever justified, it must be explicit, on-disk, per-instance, and opt-in.
 4. **Credentials never enter git or code.** They live in `.env` / `instances/*.env`

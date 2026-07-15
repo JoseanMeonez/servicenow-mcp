@@ -8,6 +8,7 @@ import {
   registerSchemaTools,
   registerUpdateSetReadTools,
   registerUpdateSetWriteTools,
+  registerDocsTools,
 } from './tools/index.js';
 
 export const SERVER_VERSION = '0.1.0';
@@ -19,6 +20,7 @@ export function buildServer(cfg: Config, client: SnClient): McpServer {
   registerAggregateTools(server, client);
   registerSchemaTools(server, client);
   registerUpdateSetReadTools(server, client, cfg);
+  registerDocsTools(server, client, cfg);
 
   if (cfg.allowWrites) {
     registerRecordWriteTools(server, client, cfg);

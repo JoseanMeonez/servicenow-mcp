@@ -1,7 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Config } from '../../src/config.js';
 import type { SnClient } from '../../src/client/snClient.js';
-import { getCurrentUpdateSet, assertWritable, setCurrentUpdateSet } from '../../src/gate.js';
+import {
+  getCurrentUpdateSet,
+  assertWritable,
+  setCurrentUpdateSet,
+  assertPrecheckToken,
+} from '../../src/gate.js';
+import { sign } from '../../src/docs/token.js';
 
 const cfg: Config = {
   baseUrl: 'https://test.service-now.com',
@@ -13,6 +19,8 @@ const cfg: Config = {
   maxLimit: 500,
   requestTimeoutMs: 30000,
   retryMaxAttempts: 3,
+  requireDocsPrecheck: false,
+  docsRelease: 'australia',
 };
 
 interface MockState {
@@ -118,5 +126,84 @@ describe('setCurrentUpdateSet', () => {
       name: 'sys_update_set',
       value: 'us2',
     });
+  });
+});
+
+describe('assertPrecheckToken', () => {
+  it('is a no-op in advisory mode (requireDocsPrecheck: false)', () => {
+    expect(() =>
+      assertPrecheckToken(
+        { ...cfg, requireDocsPrecheck: false },
+        { table: 'sys_dictionary', operation: 'create' },
+      ),
+    ).not.toThrow();
+  });
+
+  const strictCfg: Config = { ...cfg, requireDocsPrecheck: true };
+
+  it('does not require a token for low-risk create operations in strict mode', () => {
+    expect(() =>
+      assertPrecheckToken(strictCfg, { table: 'u_my_table', operation: 'create' }),
+    ).not.toThrow();
+  });
+
+  it('throws when the token is missing for a medium/high-risk operation', () => {
+    expect(() =>
+      assertPrecheckToken(strictCfg, { table: 'sys_dictionary', operation: 'create' }),
+    ).toThrow(/precheck token is required/i);
+  });
+
+  it('throws when the operation is delete without a token, even on a low-risk table', () => {
+    expect(() =>
+      assertPrecheckToken(strictCfg, { table: 'u_my_table', operation: 'delete' }),
+    ).toThrow(/precheck token is required/i);
+  });
+
+  it('throws when the token is expired', () => {
+    vi.useFakeTimers();
+    try {
+      const token = sign({ table: 'incident', operation: 'update', riskLevel: 'medium' });
+      vi.advanceTimersByTime(11 * 60 * 1000);
+      expect(() =>
+        assertPrecheckToken(strictCfg, {
+          table: 'incident',
+          operation: 'update',
+          precheckToken: token,
+        }),
+      ).toThrow(/expired/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('throws when the token signature is tampered', () => {
+    const token = sign({ table: 'incident', operation: 'update', riskLevel: 'medium' });
+    const [payloadEncoded] = token.split('.');
+    const tamperedToken = `${payloadEncoded}.deadbeef`;
+    expect(() =>
+      assertPrecheckToken(strictCfg, {
+        table: 'incident',
+        operation: 'update',
+        precheckToken: tamperedToken,
+      }),
+    ).toThrow(/invalid/i);
+  });
+
+  it('throws when the token table/operation does not match the request', () => {
+    const token = sign({ table: 'incident', operation: 'update', riskLevel: 'medium' });
+    expect(() =>
+      assertPrecheckToken(strictCfg, {
+        table: 'problem',
+        operation: 'update',
+        precheckToken: token,
+      }),
+    ).toThrow(/not "problem"/);
+  });
+
+  it('passes through with a valid, matching, unexpired token', () => {
+    const token = sign({ table: 'incident', operation: 'update', riskLevel: 'medium' });
+    expect(() =>
+      assertPrecheckToken(strictCfg, { table: 'incident', operation: 'update', precheckToken: token }),
+    ).not.toThrow();
   });
 });

@@ -15,6 +15,8 @@ const baseCfg: Config = {
   maxLimit: 500,
   requestTimeoutMs: 30000,
   retryMaxAttempts: 3,
+  requireDocsPrecheck: false,
+  docsRelease: 'australia',
 };
 
 const READ_TOOLS = [
@@ -23,6 +25,10 @@ const READ_TOOLS = [
   'servicenow_get_aggregate',
   'servicenow_get_table_schema',
   'servicenow_get_current_update_set',
+  'servicenow_docs_search',
+  'servicenow_docs_get',
+  'servicenow_best_practices',
+  'servicenow_docs_precheck',
 ];
 const WRITE_TOOLS = [
   'servicenow_create_record',
@@ -94,7 +100,7 @@ describe('server over InMemoryTransport', () => {
     expect(names).toEqual([...READ_TOOLS].sort());
   });
 
-  it('exposes all 9 tools when writes are enabled', async () => {
+  it('exposes all read and write tools when writes are enabled', async () => {
     const client = await connect(
       { ...baseCfg, allowWrites: true },
       mockSnClient({ currentUpdateSet: 'named' }),
@@ -175,5 +181,48 @@ describe('server over InMemoryTransport', () => {
     });
     expect(result.isError).toBe(true);
     expect(snClient.updateRecord as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
+
+  it('advisory mode: write succeeds with no precheckToken supplied (zero behavior change)', async () => {
+    const snClient = mockSnClient({ currentUpdateSet: 'named' });
+    const client = await connect({ ...baseCfg, allowWrites: true }, snClient);
+    const result = await client.callTool({
+      name: 'servicenow_create_record',
+      arguments: { table: 'sys_dictionary', fields: { short_description: 'x' } },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(snClient.createRecord as ReturnType<typeof vi.fn>).toHaveBeenCalled();
+  });
+
+  it('strict mode: rejects a sys_* create without a precheckToken, succeeds with a valid one', async () => {
+    const snClient = mockSnClient({ currentUpdateSet: 'named' });
+    const strictCfg = { ...baseCfg, allowWrites: true, requireDocsPrecheck: true };
+    const client = await connect(strictCfg, snClient);
+
+    const rejected = await client.callTool({
+      name: 'servicenow_create_record',
+      arguments: { table: 'sys_dictionary', fields: { short_description: 'x' } },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(snClient.createRecord as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+
+    const precheck = await client.callTool({
+      name: 'servicenow_docs_precheck',
+      arguments: { table: 'sys_dictionary', operation: 'create' },
+    });
+    expect(precheck.isError).toBeFalsy();
+    const precheckStructured = precheck.structuredContent as { precheckToken?: string };
+    expect(precheckStructured.precheckToken).toBeDefined();
+
+    const allowed = await client.callTool({
+      name: 'servicenow_create_record',
+      arguments: {
+        table: 'sys_dictionary',
+        fields: { short_description: 'x' },
+        precheckToken: precheckStructured.precheckToken,
+      },
+    });
+    expect(allowed.isError).toBeFalsy();
+    expect(snClient.createRecord as ReturnType<typeof vi.fn>).toHaveBeenCalled();
   });
 });

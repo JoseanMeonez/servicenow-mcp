@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../config.js';
 import type { SnClient } from '../client/snClient.js';
 import { toToolErrorResult } from '../errors.js';
-import { assertWritable } from '../gate.js';
+import { assertWritable, assertPrecheckToken } from '../gate.js';
 
 const table = z.string().min(1).describe('Table name, e.g. "incident"');
 const sysId = z.string().length(32).describe('sys_id of the record (32 chars)');
@@ -78,12 +78,24 @@ export function registerRecordWriteTools(server: McpServer, client: SnClient, cf
       title: 'Create record',
       description:
         'Create a record. Refused while the current update set is "Default" (update-set gate).',
-      inputSchema: { table, fields: z.record(z.string(), z.unknown()) },
+      inputSchema: {
+        table,
+        fields: z.record(z.string(), z.unknown()),
+        precheckToken: z
+          .string()
+          .optional()
+          .describe('Optional token from servicenow_docs_precheck; required in strict mode'),
+      },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async (args) => {
       try {
         const updateSet = await assertWritable(client, cfg);
+        assertPrecheckToken(cfg, {
+          table: args.table,
+          operation: 'create',
+          precheckToken: args.precheckToken,
+        });
         const record = await client.createRecord(args.table, args.fields);
         return {
           content: [
@@ -106,12 +118,25 @@ export function registerRecordWriteTools(server: McpServer, client: SnClient, cf
       title: 'Update record',
       description:
         'Update fields on a record. Refused while the current update set is "Default" (update-set gate).',
-      inputSchema: { table, sysId, fields: z.record(z.string(), z.unknown()) },
+      inputSchema: {
+        table,
+        sysId,
+        fields: z.record(z.string(), z.unknown()),
+        precheckToken: z
+          .string()
+          .optional()
+          .describe('Optional token from servicenow_docs_precheck; required in strict mode'),
+      },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async (args) => {
       try {
         const updateSet = await assertWritable(client, cfg);
+        assertPrecheckToken(cfg, {
+          table: args.table,
+          operation: 'update',
+          precheckToken: args.precheckToken,
+        });
         const record = await client.updateRecord(args.table, args.sysId, args.fields);
         return {
           content: [
@@ -134,12 +159,25 @@ export function registerRecordWriteTools(server: McpServer, client: SnClient, cf
       title: 'Delete record',
       description:
         'Delete a record. Requires confirm=true and is refused while the current update set is "Default".',
-      inputSchema: { table, sysId, confirm: z.literal(true).describe('Must be exactly true') },
+      inputSchema: {
+        table,
+        sysId,
+        confirm: z.literal(true).describe('Must be exactly true'),
+        precheckToken: z
+          .string()
+          .optional()
+          .describe('Optional token from servicenow_docs_precheck; required in strict mode'),
+      },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async (args) => {
       try {
         const updateSet = await assertWritable(client, cfg);
+        assertPrecheckToken(cfg, {
+          table: args.table,
+          operation: 'delete',
+          precheckToken: args.precheckToken,
+        });
         await client.deleteRecord(args.table, args.sysId);
         return {
           content: [{ type: 'text', text: `Deleted ${args.table}/${args.sysId}` }],

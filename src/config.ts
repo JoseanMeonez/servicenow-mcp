@@ -8,6 +8,8 @@ export interface Config {
   maxLimit: number;
   requestTimeoutMs: number;
   retryMaxAttempts: number;
+  requireDocsPrecheck: boolean;
+  docsRelease: string;
 }
 
 export class ConfigError extends Error {
@@ -95,6 +97,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     'SN_MCP_RETRY_MAX_ATTEMPTS',
     problems,
   );
+  const requireDocsPrecheck = parseBool(
+    env.SN_MCP_REQUIRE_DOCS_PRECHECK,
+    false,
+    'SN_MCP_REQUIRE_DOCS_PRECHECK',
+    problems,
+  );
+  const rawDocsRelease = env.SN_MCP_DOCS_RELEASE ?? '';
+  const docsRelease = rawDocsRelease === '' ? 'australia' : rawDocsRelease;
+  if (docsRelease.trim() === '') {
+    problems.push('SN_MCP_DOCS_RELEASE must not be empty when set');
+  }
 
   if (problems.length > 0) throw new ConfigError(problems);
 
@@ -108,5 +121,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxLimit,
     requestTimeoutMs,
     retryMaxAttempts,
+    requireDocsPrecheck,
+    docsRelease,
   };
 }
