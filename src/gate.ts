@@ -1,6 +1,8 @@
 import type { Config } from './config.js';
 import { SnApiError } from './errors.js';
 import type { SnClient } from './client/snClient.js';
+import { verify, type PrecheckOperation } from './docs/token.js';
+import { analyzePrecheck } from './docs/precheck.js';
 
 export interface UpdateSetInfo {
   sysId: string;
@@ -70,6 +72,60 @@ export async function assertWritable(
     });
   }
   return current;
+}
+
+/**
+ * Strict-mode gate for the docs-precheck feature. No-op when
+ * `cfg.requireDocsPrecheck` is false (advisory mode — zero behavior change).
+ * When strict mode is active, recomputes risk server-side (never trusts the
+ * client-supplied risk level) and requires a valid, unexpired, matching
+ * token whenever the computed risk is medium/high or the operation is
+ * delete. Mirrors `assertWritable`'s throw style so `toToolErrorResult`
+ * renders it identically.
+ */
+export function assertPrecheckToken(
+  cfg: Config,
+  params: { table: string; operation: PrecheckOperation; precheckToken?: string },
+): void {
+  if (!cfg.requireDocsPrecheck) return;
+
+  const { table, operation, precheckToken } = params;
+  const report = analyzePrecheck(table, operation);
+  const requiresToken = report.riskLevel !== 'low' || operation === 'delete';
+  if (!requiresToken) return;
+
+  if (!precheckToken) {
+    throw new SnApiError({
+      status: 409,
+      message:
+        `A valid precheck token is required for ${operation} on "${table}" ` +
+        '(strict docs-precheck mode). Call servicenow_docs_precheck first.',
+    });
+  }
+
+  const result = verify(precheckToken);
+  if (!result.valid) {
+    const reasonMessage =
+      result.reason === 'expired'
+        ? 'the precheck token has expired'
+        : 'the precheck token signature is invalid';
+    throw new SnApiError({
+      status: 409,
+      message: `Precheck token rejected: ${reasonMessage}. Call servicenow_docs_precheck again.`,
+    });
+  }
+
+  if (
+    result.payload.table.toLowerCase() !== table.toLowerCase() ||
+    result.payload.operation !== operation
+  ) {
+    throw new SnApiError({
+      status: 409,
+      message:
+        `Precheck token rejected: it was issued for table "${result.payload.table}" / ` +
+        `operation "${result.payload.operation}", not "${table}" / "${operation}".`,
+    });
+  }
 }
 
 /**

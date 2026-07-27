@@ -20,6 +20,8 @@ describe('loadConfig', () => {
       maxLimit: 500,
       requestTimeoutMs: 30000,
       retryMaxAttempts: 3,
+      requireDocsPrecheck: false,
+      docsRelease: 'australia',
     });
   });
 
@@ -50,6 +52,28 @@ describe('loadConfig', () => {
   it('rejects invalid booleans and integers', () => {
     expect(() => loadConfig({ ...baseEnv, SN_MCP_ALLOW_WRITES: 'yes' })).toThrow(ConfigError);
     expect(() => loadConfig({ ...baseEnv, SN_MCP_DEFAULT_LIMIT: '-5' })).toThrow(ConfigError);
+  });
+
+  it('applies docs-precheck defaults when unset', () => {
+    const cfg = loadConfig(baseEnv);
+    expect(cfg.requireDocsPrecheck).toBe(false);
+    expect(cfg.docsRelease).toBe('australia');
+  });
+
+  it('parses docs-precheck overrides', () => {
+    const cfg = loadConfig({
+      ...baseEnv,
+      SN_MCP_REQUIRE_DOCS_PRECHECK: 'true',
+      SN_MCP_DOCS_RELEASE: 'washingtondc',
+    });
+    expect(cfg.requireDocsPrecheck).toBe(true);
+    expect(cfg.docsRelease).toBe('washingtondc');
+  });
+
+  it('rejects an invalid SN_MCP_REQUIRE_DOCS_PRECHECK value', () => {
+    expect(() =>
+      loadConfig({ ...baseEnv, SN_MCP_REQUIRE_DOCS_PRECHECK: 'maybe' }),
+    ).toThrow(ConfigError);
   });
 
   it('parses overrides', () => {

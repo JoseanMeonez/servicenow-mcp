@@ -38,6 +38,8 @@ when present — see `.env.example`):
 | `SN_MCP_MAX_LIMIT`          | `500`        | Hard ceiling on any requested limit                        |
 | `SN_MCP_REQUEST_TIMEOUT_MS` | `30000`      | Per-request timeout                                        |
 | `SN_MCP_RETRY_MAX_ATTEMPTS` | `3`          | Attempts for 429/5xx responses (honors `Retry-After`)      |
+| `SN_MCP_REQUIRE_DOCS_PRECHECK` | `false`   | Strict mode: require a valid `servicenow_docs_precheck` token before medium/high-risk or delete writes |
+| `SN_MCP_DOCS_RELEASE`       | `australia`  | ServiceNow release branch used by the docs tools (see [branches](https://github.com/ServiceNow/ServiceNowDocs/branches)) |
 
 Changing `SN_MCP_ALLOW_WRITES` requires restarting the MCP server process — tools are
 registered at startup, not per call.
@@ -276,6 +278,10 @@ Read tools (always registered):
 | `servicenow_get_aggregate`          | Stats API: count/avg/sum/min/max, optionally grouped                    |
 | `servicenow_get_table_schema`       | Field list from `sys_dictionary`, including inherited fields            |
 | `servicenow_get_current_update_set` | Show your current update set                                            |
+| `servicenow_docs_search`            | Search the `llms.txt` topic index of `ServiceNow/ServiceNowDocs`         |
+| `servicenow_docs_get`               | Fetch the full markdown of a specific doc path                          |
+| `servicenow_best_practices`         | Curated, in-repo guidance (update-sets, record-ops, contracts, coding standards); no network I/O |
+| `servicenow_docs_precheck`          | Risk-analyze an intended write; issues a signed token for medium/high-risk or delete operations |
 
 Write tools (only when `SN_MCP_ALLOW_WRITES=true`):
 
@@ -293,6 +299,27 @@ Every write first resolves your current update set on the instance
 clear error telling you to switch sets first. This keeps AI-driven changes tracked in a real
 update set, the same discipline you'd apply by hand. Disable with
 `SN_MCP_REQUIRE_UPDATE_SET=false` (e.g. for non-development instances).
+
+### Docs-guided writes and the precheck gate
+
+All four write tools also accept an optional `precheckToken` parameter, obtained by calling
+`servicenow_docs_precheck` with the target `table` and `operation` (`create`/`update`/
+`delete`) beforehand. The precheck report includes a risk level (`low`/`medium`/`high`),
+matching curated best practices, and — for medium/high-risk operations, or any `delete` — a
+signed token valid for approximately 10 minutes.
+
+- **Advisory mode (default, `SN_MCP_REQUIRE_DOCS_PRECHECK=false`)**: the token is accepted
+  but never required; writes behave exactly as before this feature existed.
+- **Strict mode (`SN_MCP_REQUIRE_DOCS_PRECHECK=true`)**: a write whose *server-recomputed*
+  risk is medium/high, or whose operation is `delete`, is refused unless a valid, unexpired
+  `precheckToken` bound to that exact table and operation is supplied. Low-risk creates/
+  updates still proceed without a token.
+
+The token is a compact HMAC-SHA256-signed value, verified without any server-side session or
+cache (fully self-contained), but signed with a secret generated fresh per process — tokens
+from one server process are not valid against another (e.g. after a restart). This is
+intentional: the token is a short-lived confirmation that guidance was consulted, not a
+durable credential.
 
 ## Development
 
