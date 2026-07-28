@@ -136,12 +136,12 @@ mismatched, or invalid.
   `src/docs/bestPractices/*.ts` each export an array of:
   ```ts
   interface BestPracticeEntry {
-    id: string;              // stable slug, e.g. "update-set-default-forbidden"
+    id: string; // stable slug, e.g. "update-set-default-forbidden"
     area: 'update-sets' | 'record-ops' | 'contracts' | 'coding-standards';
     title: string;
-    guidance: string;        // markdown-formatted prose, 1-3 paragraphs
+    guidance: string; // markdown-formatted prose, 1-3 paragraphs
     appliesTo: {
-      tables?: string[];      // exact names or glob-like prefixes, e.g. "sys_*"
+      tables?: string[]; // exact names or glob-like prefixes, e.g. "sys_*"
       operations?: ('create' | 'update' | 'delete')[];
     };
     riskLevel: 'low' | 'medium' | 'high'; // baseline risk this entry represents
@@ -173,7 +173,7 @@ mismatched, or invalid.
   reuse a low-risk "create" precheck to justify a delete.
 - **Rejected alternative**: wildcard/looser table matching (e.g. token issued for `sys_*`
   covers any `sys_` table). Rejected because it weakens the guarantee that a human/agent
-  actually looked at guidance for the *specific* table being written, and table-prefix
+  actually looked at guidance for the _specific_ table being written, and table-prefix
   matching is already how `analyzePrecheck` derives risk level (see #6) — reusing it for
   token binding would make the token nearly meaningless as a per-operation confirmation.
 
@@ -182,14 +182,14 @@ mismatched, or invalid.
 - **Decision**: `analyzePrecheck(table, operation)` runs ordered pattern rules against the
   table name to derive a `riskLevel`, then filters `BEST_PRACTICES` whose `appliesTo`
   matches:
-  | Rule (checked in order) | Risk level |
-  |---|---|
-  | `operation === 'delete'` | at least `medium` (escalate if table rule below is `high`) |
-  | table matches `/^sys_/i` (platform/system tables) | `high` |
-  | table matches `/^cmdb_/i` (CMDB) | `high` |
-  | table is a task-family table (`task`, `incident`, `problem`, `change_request`, `sc_task`, or ends in `_task`) | `medium` |
-  | table has a custom prefix (`u_`, `x_`) | `low` |
-  | no rule matches | `low` |
+  | Rule (checked in order)                                                                                       | Risk level                                                 |
+  | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+  | `operation === 'delete'`                                                                                      | at least `medium` (escalate if table rule below is `high`) |
+  | table matches `/^sys_/i` (platform/system tables)                                                             | `high`                                                     |
+  | table matches `/^cmdb_/i` (CMDB)                                                                              | `high`                                                     |
+  | table is a task-family table (`task`, `incident`, `problem`, `change_request`, `sc_task`, or ends in `_task`) | `medium`                                                   |
+  | table has a custom prefix (`u_`, `x_`)                                                                        | `low`                                                      |
+  | no rule matches                                                                                               | `low`                                                      |
 - A best-practice entry matches if `appliesTo.tables` is unset (applies to all tables) or
   contains an exact/prefix match for the table, AND `appliesTo.operations` is unset or
   includes the operation.
@@ -197,7 +197,7 @@ mismatched, or invalid.
   (`id`, `title`, `guidance`, `citations`), and — only when `riskLevel !== 'low'` — a
   signed `precheckToken`. Low-risk operations do not get a token because strict mode never
   requires one for them (see gate logic below); this keeps low-friction ops fast.
-- **Gate logic**: `assertPrecheckToken` requires a token only when the *computed* risk for
+- **Gate logic**: `assertPrecheckToken` requires a token only when the _computed_ risk for
   the actual write attempt is `medium` or `high`, OR the operation is `delete` (always).
   Low-risk creates/updates proceed without a token even in strict mode. This is
   recomputed server-side at write time (not trusted from client input) by calling the
@@ -210,13 +210,17 @@ mismatched, or invalid.
   export function assertPrecheckToken(
     cfg: Config,
     params: { table: string; operation: 'create' | 'update' | 'delete'; precheckToken?: string },
-  ): void
+  ): void;
   ```
   Called synchronously (no I/O) in each write handler, immediately after
   `await assertWritable(client, cfg)`, before the `SnClient` call:
   ```ts
   const updateSet = await assertWritable(client, cfg);
-  assertPrecheckToken(cfg, { table: args.table, operation: 'create', precheckToken: args.precheckToken });
+  assertPrecheckToken(cfg, {
+    table: args.table,
+    operation: 'create',
+    precheckToken: args.precheckToken,
+  });
   ```
   Throws `SnApiError({ status: 409, message: ... })` on: missing token when required,
   expired token, signature mismatch, table/operation mismatch — mirroring the existing
@@ -226,8 +230,8 @@ mismatched, or invalid.
 - `src/config.ts` adds two fields following the existing `parseBool`/`parsePositiveInt`/
   `ConfigError` aggregation pattern:
   ```ts
-  requireDocsPrecheck: boolean;   // SN_MCP_REQUIRE_DOCS_PRECHECK, default false
-  docsRelease: string;            // SN_MCP_DOCS_RELEASE, default "australia"
+  requireDocsPrecheck: boolean; // SN_MCP_REQUIRE_DOCS_PRECHECK, default false
+  docsRelease: string; // SN_MCP_DOCS_RELEASE, default "australia"
   ```
   `docsRelease` has no strict validation beyond non-empty (branch names are free-form);
   invalid/nonexistent branches surface as a network 404 from the docs tools, handled per
@@ -255,9 +259,11 @@ needed.
 
 `docs.ts` is registered unconditionally in `buildServer` (read-only tools, always
 available, independent of `cfg.allowWrites`):
+
 ```ts
 registerDocsTools(server, client, cfg); // after registerSchemaTools, before write-tools block
 ```
+
 Write-tool handlers in `records.ts` (and `updateSet.ts`'s `servicenow_set_current_update_set`
 if applicable) gain the optional `precheckToken` zod field and the `assertPrecheckToken`
 call.
@@ -275,22 +281,22 @@ call.
 
 ## Error handling table
 
-| Scenario | Tool(s) | Behavior |
-|---|---|---|
-| GitHub raw fetch network error / timeout | `servicenow_docs_search`, `servicenow_docs_get` | `isError: true`, message suggests `servicenow_best_practices` fallback |
-| GitHub raw fetch 404 (bad release or path) | `servicenow_docs_get` | `isError: true`, message includes attempted URL and release |
-| Malformed/unexpected llms.txt shape | `servicenow_docs_search` | Parser is tolerant (skips unmatched lines); empty result set is a valid (non-error) outcome with a note |
-| Invalid table/operation combo (precheck) | `servicenow_docs_precheck` | Not an error — returns `riskLevel: 'low'`, empty matches |
-| Missing precheck token, strict mode, risk >= medium | write tools | `SnApiError(409)` via `assertPrecheckToken`, before any ServiceNow API call |
-| Expired / tampered / mismatched-table token | write tools | `SnApiError(409)`, message states which check failed (expired vs. signature vs. binding) |
-| Advisory mode (default), any token state | write tools | No gate check performed; write proceeds as today |
+| Scenario                                            | Tool(s)                                         | Behavior                                                                                                |
+| --------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| GitHub raw fetch network error / timeout            | `servicenow_docs_search`, `servicenow_docs_get` | `isError: true`, message suggests `servicenow_best_practices` fallback                                  |
+| GitHub raw fetch 404 (bad release or path)          | `servicenow_docs_get`                           | `isError: true`, message includes attempted URL and release                                             |
+| Malformed/unexpected llms.txt shape                 | `servicenow_docs_search`                        | Parser is tolerant (skips unmatched lines); empty result set is a valid (non-error) outcome with a note |
+| Invalid table/operation combo (precheck)            | `servicenow_docs_precheck`                      | Not an error — returns `riskLevel: 'low'`, empty matches                                                |
+| Missing precheck token, strict mode, risk >= medium | write tools                                     | `SnApiError(409)` via `assertPrecheckToken`, before any ServiceNow API call                             |
+| Expired / tampered / mismatched-table token         | write tools                                     | `SnApiError(409)`, message states which check failed (expired vs. signature vs. binding)                |
+| Advisory mode (default), any token state            | write tools                                     | No gate check performed; write proceeds as today                                                        |
 
 ## Testing strategy
 
 - **Unit** (`test/unit/`, injected fake `fetch`, matching `SnClient` pattern):
   - `token.test.ts`: sign/verify round-trip, expiry, tampered payload/signature rejected,
     table/operation mismatch rejected.
-  - `precheck.test.ts`: risk-level derivation table (sys_*, cmdb_*, task-family, custom
+  - `precheck.test.ts`: risk-level derivation table (sys__, cmdb__, task-family, custom
     prefix, delete escalation), best-practice matching filters correctly per area/table.
   - `llmsIndex.test.ts`: parses a fixture llms.txt string (no network), scoring/ranking,
     empty-result and malformed-line tolerance.
@@ -316,13 +322,13 @@ call.
 
 ## Tradeoffs summary
 
-| Decision | Tradeoff accepted |
-|---|---|
-| Per-process HMAC secret | Tokens don't survive server restart or work across multiple processes — acceptable for single-instance-per-process deployment model |
-| No llms.txt caching | Slightly higher latency per docs search (one extra fetch) — acceptable given stateless-server hard rule and small file size |
+| Decision                              | Tradeoff accepted                                                                                                                                                                       |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Per-process HMAC secret               | Tokens don't survive server restart or work across multiple processes — acceptable for single-instance-per-process deployment model                                                     |
+| No llms.txt caching                   | Slightly higher latency per docs search (one extra fetch) — acceptable given stateless-server hard rule and small file size                                                             |
 | TypeScript data modules over markdown | Editing best-practice content requires a code change/PR (not a content-only markdown edit) — acceptable given the "authored and versioned in this repo" intent and stronger type safety |
-| Exact table+operation token binding | More precheck calls needed if an agent works across many tables — acceptable since `servicenow_docs_precheck` has no I/O cost and is cheap to call repeatedly |
-| No branch-discovery tool | Users must know ServiceNow release-family branch names externally — acceptable, documented in tool description and design |
+| Exact table+operation token binding   | More precheck calls needed if an agent works across many tables — acceptable since `servicenow_docs_precheck` has no I/O cost and is cheap to call repeatedly                           |
+| No branch-discovery tool              | Users must know ServiceNow release-family branch names externally — acceptable, documented in tool description and design                                                               |
 
 ## Checklist
 
