@@ -203,7 +203,11 @@ describe('assertPrecheckToken', () => {
   it('passes through with a valid, matching, unexpired token', () => {
     const token = sign({ table: 'incident', operation: 'update', riskLevel: 'medium' });
     expect(() =>
-      assertPrecheckToken(strictCfg, { table: 'incident', operation: 'update', precheckToken: token }),
+      assertPrecheckToken(strictCfg, {
+        table: 'incident',
+        operation: 'update',
+        precheckToken: token,
+      }),
     ).not.toThrow();
   });
 });
