@@ -39,7 +39,11 @@ function signPayload(payloadEncoded: string): string {
  * Issues a compact HMAC-signed token binding table + operation, valid for
  * ~10 minutes. Format: base64url(JSON payload) + "." + base64url(signature).
  */
-export function sign(input: { table: string; operation: PrecheckOperation; riskLevel: RiskLevel }): string {
+export function sign(input: {
+  table: string;
+  operation: PrecheckOperation;
+  riskLevel: RiskLevel;
+}): string {
   const iat = Math.floor(Date.now() / 1000);
   const payload: PrecheckTokenPayload = {
     table: input.table,
@@ -66,10 +70,7 @@ export function verify(token: string): VerifyResult {
   const expectedSignature = signPayload(payloadEncoded);
   const expectedBuf = Buffer.from(expectedSignature, 'utf8');
   const actualBuf = Buffer.from(signature, 'utf8');
-  if (
-    expectedBuf.length !== actualBuf.length ||
-    !timingSafeEqual(expectedBuf, actualBuf)
-  ) {
+  if (expectedBuf.length !== actualBuf.length || !timingSafeEqual(expectedBuf, actualBuf)) {
     return { valid: false, reason: 'signature-mismatch' };
   }
 

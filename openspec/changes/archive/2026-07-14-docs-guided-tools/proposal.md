@@ -7,6 +7,7 @@ ServiceNow operations (record writes, update-set changes) carry non-obvious risk
 ## Scope
 
 ### In Scope
+
 - `servicenow_docs_search` — search the `llms.txt` index of the official `ServiceNow/ServiceNowDocs` repo.
 - `servicenow_docs_get` — fetch full markdown of a specific doc topic (live fetch, per configured release branch).
 - `servicenow_best_practices` — query curated, authored-in-repo guidance by area (update sets, record ops, contracts, coding standards).
@@ -16,6 +17,7 @@ ServiceNow operations (record writes, update-set changes) carry non-obvious risk
 - Curated best-practice content authored in-repo (not copied from ServiceNow docs) covering: update-set discipline, record operations, contracts/breaking changes, coding standards.
 
 ### Out of Scope
+
 - Full documentation mirroring/redistribution of ServiceNow docs (live-fetch only).
 - Automatic enforcement without opt-in (`SN_MCP_REQUIRE_DOCS_PRECHECK=false` is default; no behavior change out of the box).
 - Any server-side session/cache state (violates statelessness rule).
@@ -24,10 +26,12 @@ ServiceNow operations (record writes, update-set changes) carry non-obvious risk
 ## Capabilities
 
 ### New Capabilities
+
 - `docs-tools`: read-only tools for searching/fetching official ServiceNow docs and querying embedded best-practice content.
 - `docs-precheck`: structured risk-analysis tool for intended write operations, issuing an optional signed token.
 
 ### Modified Capabilities
+
 - `write-tools`: add optional `precheckToken` parameter and strict-mode gate check (only enforced when `SN_MCP_REQUIRE_DOCS_PRECHECK=true`); no change to default behavior or existing signatures' required fields.
 
 ## Approach
@@ -36,26 +40,26 @@ Hybrid docs strategy: curated best-practice markdown authored and versioned in t
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|--------------|
-| `src/tools/docs.ts` (new) | New | `servicenow_docs_search`, `servicenow_docs_get`, `servicenow_best_practices`, `servicenow_docs_precheck` |
-| `src/best-practices/*.md` (new) | New | Curated, authored-in-repo guidance content |
-| `src/gate.ts` | Modified | Extend/parallel gate for strict-mode precheck-token validation |
-| `src/config.ts` | Modified | Add `SN_MCP_REQUIRE_DOCS_PRECHECK`, `SN_MCP_DOCS_RELEASE` env parsing |
-| `src/server.ts` | Modified | Register new docs tools via `registerDocsTools` |
-| `src/tools/records.ts`, `updateSet.ts` | Modified | Optional `precheckToken` param on write handlers |
-| `test/unit`, `test/integration/server.inmemory.test.ts` | Modified | Add new tools to READ_TOOLS/WRITE_TOOLS arrays; add precheck/token tests |
+| Area                                                    | Impact   | Description                                                                                              |
+| ------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `src/tools/docs.ts` (new)                               | New      | `servicenow_docs_search`, `servicenow_docs_get`, `servicenow_best_practices`, `servicenow_docs_precheck` |
+| `src/best-practices/*.md` (new)                         | New      | Curated, authored-in-repo guidance content                                                               |
+| `src/gate.ts`                                           | Modified | Extend/parallel gate for strict-mode precheck-token validation                                           |
+| `src/config.ts`                                         | Modified | Add `SN_MCP_REQUIRE_DOCS_PRECHECK`, `SN_MCP_DOCS_RELEASE` env parsing                                    |
+| `src/server.ts`                                         | Modified | Register new docs tools via `registerDocsTools`                                                          |
+| `src/tools/records.ts`, `updateSet.ts`                  | Modified | Optional `precheckToken` param on write handlers                                                         |
+| `test/unit`, `test/integration/server.inmemory.test.ts` | Modified | Add new tools to READ_TOOLS/WRITE_TOOLS arrays; add precheck/token tests                                 |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|-----------|
-| Licensing of ServiceNowDocs content | Low | Live-fetch only, no redistribution; curated content is authored in-repo |
-| Network dependency for docs tools | Med | Docs tools are read-only/advisory; failures return clear errors, never block writes in advisory mode |
-| Strict mode gives false sense of security | Med | Precheck report is advisory content, not a guarantee; document limitations clearly |
-| Token secret management (per-process HMAC) | Low | No cross-process/server-side state; secret generated at process start, consistent with statelessness rule |
-| Test surface growth breaks existing hardcoded tool arrays | High | Explicit task to update `test/integration/server.inmemory.test.ts` arrays |
-| PR size exceeds 400-line budget | High (accepted) | `size:exception` pre-approved by user for single PR |
+| Risk                                                      | Likelihood      | Mitigation                                                                                                |
+| --------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------- |
+| Licensing of ServiceNowDocs content                       | Low             | Live-fetch only, no redistribution; curated content is authored in-repo                                   |
+| Network dependency for docs tools                         | Med             | Docs tools are read-only/advisory; failures return clear errors, never block writes in advisory mode      |
+| Strict mode gives false sense of security                 | Med             | Precheck report is advisory content, not a guarantee; document limitations clearly                        |
+| Token secret management (per-process HMAC)                | Low             | No cross-process/server-side state; secret generated at process start, consistent with statelessness rule |
+| Test surface growth breaks existing hardcoded tool arrays | High            | Explicit task to update `test/integration/server.inmemory.test.ts` arrays                                 |
+| PR size exceeds 400-line budget                           | High (accepted) | `size:exception` pre-approved by user for single PR                                                       |
 
 ## Rollback Plan
 

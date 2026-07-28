@@ -45,7 +45,11 @@ function tableMatches(pattern: string, table: string): boolean {
   return normalizedTable === normalizedPattern;
 }
 
-function entryMatches(entry: BestPracticeEntry, table: string, operation: PrecheckOperation): boolean {
+function entryMatches(
+  entry: BestPracticeEntry,
+  table: string,
+  operation: PrecheckOperation,
+): boolean {
   const tablesOk =
     !entry.appliesTo.tables ||
     entry.appliesTo.tables.length === 0 ||

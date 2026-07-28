@@ -76,8 +76,8 @@ describe('fetchLlmsIndex', () => {
 
   it('throws when the fetch returns a non-2xx response', async () => {
     const fakeFetch = vi.fn(async () => new Response('not found', { status: 404 }));
-    await expect(
-      fetchLlmsIndex('australia', fakeFetch as unknown as typeof fetch),
-    ).rejects.toThrow(/404/);
+    await expect(fetchLlmsIndex('australia', fakeFetch as unknown as typeof fetch)).rejects.toThrow(
+      /404/,
+    );
   });
 });

@@ -127,7 +127,10 @@ export function registerDocsTools(server: McpServer, _client: SnClient, cfg: Con
         : BEST_PRACTICES;
       return {
         content: [
-          { type: 'text', text: `${entries.length} best-practice entr(y/ies)\n${JSON.stringify(entries, null, 2)}` },
+          {
+            type: 'text',
+            text: `${entries.length} best-practice entr(y/ies)\n${JSON.stringify(entries, null, 2)}`,
+          },
         ],
         structuredContent: { entries },
       };

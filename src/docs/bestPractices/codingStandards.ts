@@ -6,7 +6,7 @@ export const CODING_STANDARDS_PRACTICES: BestPracticeEntry[] = [
     area: 'coding-standards',
     title: 'Build encoded queries carefully, never by string-concatenating user input',
     guidance:
-      'Encoded queries (e.g. `active=true^priority=1`) are ServiceNow\'s query language, not ' +
+      "Encoded queries (e.g. `active=true^priority=1`) are ServiceNow's query language, not " +
       'SQL, but they are still parsed server-side and can be manipulated by unsanitized ' +
       'input in the same spirit as injection. Validate or escape any user-supplied value ' +
       'used to build a query segment, and prefer parameterizing known-safe fields over ' +
