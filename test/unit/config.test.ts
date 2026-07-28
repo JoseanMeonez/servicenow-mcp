@@ -38,6 +38,42 @@ describe('loadConfig', () => {
     }
   });
 
+  it('defaults to basic auth', () => {
+    const cfg = loadConfig(baseEnv);
+    expect(cfg.authMode).toBe('basic');
+    expect(cfg.sessionFile).toBe('');
+  });
+
+  it('accepts session mode without a password', () => {
+    const cfg = loadConfig({
+      SN_BASE_URL: baseEnv.SN_BASE_URL,
+      SN_USERNAME: 'jose.meonez',
+      SN_AUTH_MODE: 'session',
+      SN_SESSION_FILE: '/tmp/session.json',
+    });
+    expect(cfg.authMode).toBe('session');
+    expect(cfg.sessionFile).toBe('/tmp/session.json');
+    expect(cfg.password).toBe('');
+  });
+
+  it('requires SN_SESSION_FILE in session mode', () => {
+    expect(() => loadConfig({ ...baseEnv, SN_AUTH_MODE: 'session' })).toThrow(/SN_SESSION_FILE/);
+  });
+
+  it('requires SN_USERNAME in session mode too (the write gate needs it)', () => {
+    expect(() =>
+      loadConfig({
+        SN_BASE_URL: baseEnv.SN_BASE_URL,
+        SN_AUTH_MODE: 'session',
+        SN_SESSION_FILE: '/tmp/session.json',
+      }),
+    ).toThrow(/SN_USERNAME/);
+  });
+
+  it('rejects an unknown auth mode', () => {
+    expect(() => loadConfig({ ...baseEnv, SN_AUTH_MODE: 'oauth' })).toThrow(/SN_AUTH_MODE/);
+  });
+
   it('strips trailing slashes from the base URL', () => {
     const cfg = loadConfig({ ...baseEnv, SN_BASE_URL: 'https://x.service-now.com///' });
     expect(cfg.baseUrl).toBe('https://x.service-now.com');
@@ -71,9 +107,9 @@ describe('loadConfig', () => {
   });
 
   it('rejects an invalid SN_MCP_REQUIRE_DOCS_PRECHECK value', () => {
-    expect(() =>
-      loadConfig({ ...baseEnv, SN_MCP_REQUIRE_DOCS_PRECHECK: 'maybe' }),
-    ).toThrow(ConfigError);
+    expect(() => loadConfig({ ...baseEnv, SN_MCP_REQUIRE_DOCS_PRECHECK: 'maybe' })).toThrow(
+      ConfigError,
+    );
   });
 
   it('parses overrides', () => {

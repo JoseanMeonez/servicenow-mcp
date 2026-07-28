@@ -11,7 +11,8 @@ GitHub Copilot in VS Code, and any other MCP client (stdio transport).
 ## Requirements
 
 - Node.js >= 20.6
-- A ServiceNow instance reachable with Basic Auth (username/password)
+- A ServiceNow instance reachable with Basic Auth (username/password), **or** an instance you
+  can log into through SSO in a browser — see [SSO session mode](#sso-session-mode)
 
 ## Install
 
@@ -27,19 +28,21 @@ npm run build
 All configuration is via environment variables (a `.env` file in the repo root is also loaded
 when present — see `.env.example`):
 
-| Variable                    | Default      | Description                                                |
-| --------------------------- | ------------ | ---------------------------------------------------------- |
-| `SN_BASE_URL`               | — (required) | Instance URL, e.g. `https://dev12345.service-now.com`      |
-| `SN_USERNAME`               | — (required) | Basic Auth username                                        |
-| `SN_PASSWORD`               | — (required) | Basic Auth password                                        |
-| `SN_MCP_ALLOW_WRITES`       | `false`      | Register write tools (create/update/delete/set update set) |
-| `SN_MCP_REQUIRE_UPDATE_SET` | `true`       | Refuse writes while the current update set is "Default"    |
-| `SN_MCP_DEFAULT_LIMIT`      | `50`         | Default query page size                                    |
-| `SN_MCP_MAX_LIMIT`          | `500`        | Hard ceiling on any requested limit                        |
-| `SN_MCP_REQUEST_TIMEOUT_MS` | `30000`      | Per-request timeout                                        |
-| `SN_MCP_RETRY_MAX_ATTEMPTS` | `3`          | Attempts for 429/5xx responses (honors `Retry-After`)      |
-| `SN_MCP_REQUIRE_DOCS_PRECHECK` | `false`   | Strict mode: require a valid `servicenow_docs_precheck` token before medium/high-risk or delete writes |
-| `SN_MCP_DOCS_RELEASE`       | `australia`  | ServiceNow release branch used by the docs tools (see [branches](https://github.com/ServiceNow/ServiceNowDocs/branches)) |
+| Variable                       | Default                   | Description                                                                                                              |
+| ------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `SN_BASE_URL`                  | — (required)              | Instance URL, e.g. `https://dev12345.service-now.com`                                                                    |
+| `SN_AUTH_MODE`                 | `basic`                   | `basic` (username/password) or `session` ([SSO session mode](#sso-session-mode))                                         |
+| `SN_USERNAME`                  | — (required)              | Your ServiceNow user name. Required in both modes: the write gate uses it to resolve whose update set is current         |
+| `SN_PASSWORD`                  | — (required in `basic`)   | Basic Auth password. Unused in `session` mode                                                                            |
+| `SN_SESSION_FILE`              | — (required in `session`) | Path to the JSON file holding the captured session                                                                       |
+| `SN_MCP_ALLOW_WRITES`          | `false`                   | Register write tools (create/update/delete/set update set)                                                               |
+| `SN_MCP_REQUIRE_UPDATE_SET`    | `true`                    | Refuse writes while the current update set is "Default"                                                                  |
+| `SN_MCP_DEFAULT_LIMIT`         | `50`                      | Default query page size                                                                                                  |
+| `SN_MCP_MAX_LIMIT`             | `500`                     | Hard ceiling on any requested limit                                                                                      |
+| `SN_MCP_REQUEST_TIMEOUT_MS`    | `30000`                   | Per-request timeout                                                                                                      |
+| `SN_MCP_RETRY_MAX_ATTEMPTS`    | `3`                       | Attempts for 429/5xx responses (honors `Retry-After`)                                                                    |
+| `SN_MCP_REQUIRE_DOCS_PRECHECK` | `false`                   | Strict mode: require a valid `servicenow_docs_precheck` token before medium/high-risk or delete writes                   |
+| `SN_MCP_DOCS_RELEASE`          | `australia`               | ServiceNow release branch used by the docs tools (see [branches](https://github.com/ServiceNow/ServiceNowDocs/branches)) |
 
 Changing `SN_MCP_ALLOW_WRITES` requires restarting the MCP server process — tools are
 registered at startup, not per call.
@@ -59,6 +62,62 @@ instance you connect, the user in `SN_USERNAME` must be set up as follows:
 Symptom when this is missing: every request fails with
 `401 "User is not authenticated"` even though the credentials are correct. The server's error
 output includes this hint automatically on 401 responses.
+
+## SSO session mode
+
+For instances that block Basic Auth on the REST API and where you cannot create an OAuth
+client, `SN_AUTH_MODE=session` reuses the web session your browser already established
+through SSO. Requests then run as **you**: your identity, your roles, your ACLs.
+
+> Why not OAuth? Every inbound OAuth 2.0 flow in ServiceNow — authorization code, client
+> credentials, JWT bearer — authenticates against `/oauth_token.do`, which requires a
+> `client_id` created under _System OAuth → Application Registry_. There is no public client
+> and no bypass. Without a registry entry, reusing the SSO session is the only way to call the
+> API as a real SSO user.
+
+### Capturing the session
+
+1. Open your instance in a browser and log in through SSO as usual.
+2. Open DevTools → **Network**, and click any request to your instance (reload the page if the
+   list is empty). Prefer an XHR call to `/api/…` — it carries both values you need.
+3. From that request's **Request Headers**, copy both:
+   - the full value of `Cookie`
+   - the value of `X-UserToken` (the `g_ck` token). If the request has none, run `g_ck` in the
+     DevTools **Console** instead — but take it from the same logged-in session.
+4. Save both into the file you pointed `SN_SESSION_FILE` at:
+
+```json
+{
+  "cookie": "JSESSIONID=1A2B3C...; glide_user_route=glide.abc...; glide_session_store=...",
+  "userToken": "5f1e...c9"
+}
+```
+
+**Both values are required on every request, reads included.** Verified against a live
+instance: the cookie alone answers `401 User is not authenticated`, `X-UserToken` alone does
+too, and only the pair returns data. They must come from the same browser session — the server
+refuses to start a request if either is missing from the file.
+
+The file is re-read on every request. When the session expires, paste fresh values and keep
+working — **no server restart needed**. Keep it out of git; `.gitignore` already excludes
+`.session.json` and `instances/`.
+
+### What to expect
+
+- **The session expires** (`glide.ui.session_timeout`, typically 30 minutes idle) and cannot be
+  refreshed without a browser. You will re-capture it periodically. That is the cost of not
+  having an OAuth client, not a bug.
+- On expiry the instance answers with an HTML login page instead of JSON. The server reports
+  it as `the SSO session has most likely expired` and names your session file.
+- Logging out of the browser session invalidates the captured cookie immediately.
+
+### Alternative: no SSO, no Application Registry
+
+If what you actually need is credential-free access rather than _your_ identity, ServiceNow
+(Washington+) supports inbound **REST API Keys**: activate `com.glide.tokenbased_auth`, create
+an Inbound Authentication Profile under _System Web Services → API Access Policies_, and issue
+a key. It never expires and needs no registry entry — but it runs as an integration user, not
+as you. This server does not implement it; `src/client/auth.ts` is where it would go.
 
 ## Register with Claude Code
 
@@ -149,7 +208,7 @@ Note the command and its args live together in a single array (unlike Claude's
 > Add a new entry under `mcp` in `~/.config/opencode/opencode.json` named
 > `servicenow-<instance>`, with `"type": "local"`, `"enabled": true`, and `command` as an
 > array: `["node", "--env-file=<absolute path to instances/<instance>.env>", "<absolute path
-> to dist/index.js>"]`. Keep existing entries intact.
+to dist/index.js>"]`. Keep existing entries intact.
 
 ## Register with GitHub Copilot CLI
 
@@ -180,7 +239,7 @@ Copilot CLI session.
 > Add a new entry under `mcpServers` in `~/.copilot/mcp-config.json` named
 > `servicenow-<instance>`, with `"type": "stdio"`, `command: "node"`, and args
 > `["--env-file=<absolute path to instances/<instance>.env>", "<absolute path to
-> dist/index.js>"]`. Keep existing entries intact. Then run `/mcp show` to confirm it loaded.
+dist/index.js>"]`. Keep existing entries intact. Then run `/mcp show` to confirm it loaded.
 
 ## Register with GitHub Copilot in VS Code
 
@@ -210,7 +269,7 @@ Saving the file with valid JSON restarts the Copilot agent and reloads servers a
 > Create or update `.vscode/mcp.json` in this workspace: add an entry under `servers` (not
 > `mcpServers`) named `servicenow-<instance>`, with `"type": "stdio"`, `command: "node"`, and
 > args `["--env-file=<absolute path to instances/<instance>.env>", "<absolute path to
-> dist/index.js>"]`. Keep existing entries intact.
+dist/index.js>"]`. Keep existing entries intact.
 
 ## Multiple instances
 
@@ -260,8 +319,10 @@ Keep profile files (e.g. `instances/*.env`) out of git — the `.gitignore` alre
 ### Statelessness guarantees
 
 - No record, schema, or token caching — every tool call hits the instance fresh.
-- Basic Auth header is computed per request; response cookies are ignored (no cookie jar),
-  so no ServiceNow session is retained between calls.
+- Auth headers are computed per request; response cookies are ignored (no cookie jar), so no
+  ServiceNow session is retained between calls. In `session` mode the credentials come from
+  `SN_SESSION_FILE`, re-read on every request — explicit, on-disk, per-instance, opt-in, and
+  never held in memory across calls.
 - The write gate re-reads your current update set from the instance on every write.
 
 If a metadata cache (e.g. table schemas) ever becomes worth it, it should be explicit,
@@ -271,17 +332,17 @@ on-disk, and per-instance — never implicit in-process memory.
 
 Read tools (always registered):
 
-| Tool                                | Description                                                             |
-| ----------------------------------- | ----------------------------------------------------------------------- |
-| `servicenow_query_records`          | Query a table with an encoded query; paginated (`hasMore`/`nextOffset`) |
-| `servicenow_get_record`             | Fetch one record by sys_id                                              |
-| `servicenow_get_aggregate`          | Stats API: count/avg/sum/min/max, optionally grouped                    |
-| `servicenow_get_table_schema`       | Field list from `sys_dictionary`, including inherited fields            |
-| `servicenow_get_current_update_set` | Show your current update set                                            |
-| `servicenow_docs_search`            | Search the `llms.txt` topic index of `ServiceNow/ServiceNowDocs`         |
-| `servicenow_docs_get`               | Fetch the full markdown of a specific doc path                          |
+| Tool                                | Description                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `servicenow_query_records`          | Query a table with an encoded query; paginated (`hasMore`/`nextOffset`)                          |
+| `servicenow_get_record`             | Fetch one record by sys_id                                                                       |
+| `servicenow_get_aggregate`          | Stats API: count/avg/sum/min/max, optionally grouped                                             |
+| `servicenow_get_table_schema`       | Field list from `sys_dictionary`, including inherited fields                                     |
+| `servicenow_get_current_update_set` | Show your current update set                                                                     |
+| `servicenow_docs_search`            | Search the `llms.txt` topic index of `ServiceNow/ServiceNowDocs`                                 |
+| `servicenow_docs_get`               | Fetch the full markdown of a specific doc path                                                   |
 | `servicenow_best_practices`         | Curated, in-repo guidance (update-sets, record-ops, contracts, coding standards); no network I/O |
-| `servicenow_docs_precheck`          | Risk-analyze an intended write; issues a signed token for medium/high-risk or delete operations |
+| `servicenow_docs_precheck`          | Risk-analyze an intended write; issues a signed token for medium/high-risk or delete operations  |
 
 Write tools (only when `SN_MCP_ALLOW_WRITES=true`):
 
@@ -310,7 +371,7 @@ signed token valid for approximately 10 minutes.
 
 - **Advisory mode (default, `SN_MCP_REQUIRE_DOCS_PRECHECK=false`)**: the token is accepted
   but never required; writes behave exactly as before this feature existed.
-- **Strict mode (`SN_MCP_REQUIRE_DOCS_PRECHECK=true`)**: a write whose *server-recomputed*
+- **Strict mode (`SN_MCP_REQUIRE_DOCS_PRECHECK=true`)**: a write whose _server-recomputed_
   risk is medium/high, or whose operation is `delete`, is refused unless a valid, unexpired
   `precheckToken` bound to that exact table and operation is supplied. Low-risk creates/
   updates still proceed without a token.
@@ -333,9 +394,11 @@ npm run ci           # lint + build + test
 
 ## Known limitations
 
-- **Basic Auth only (v1).** If your instance enforces SSO/MFA for API access, requests fail
-  with a "possible SSO/MFA redirect" error. An OAuth or session-based `AuthStrategy` is the
-  planned phase 2 (`src/client/auth.ts` is the single seam to extend).
+- **No OAuth.** Basic Auth and [SSO session mode](#sso-session-mode) only. OAuth would require
+  an Application Registry entry on the instance; `src/client/auth.ts` is the single seam to
+  extend if you have one.
+- **SSO sessions expire and are captured by hand.** Roughly every 30 idle minutes, with no way
+  to refresh them outside a browser.
 - **Schema from `sys_dictionary`.** Portable to every instance (including PDIs), but virtual/
   computed fields may be missing compared to `/api/now/doc/table/schema`.
 - **PDI hibernation.** Personal developer instances sleep after inactivity; wake yours in a

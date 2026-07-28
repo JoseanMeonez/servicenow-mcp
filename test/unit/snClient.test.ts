@@ -5,8 +5,10 @@ import { SnApiError } from '../../src/errors.js';
 
 const cfg: Config = {
   baseUrl: 'https://test.service-now.com',
+  authMode: 'basic',
   username: 'admin',
   password: 'secret',
+  sessionFile: '',
   allowWrites: false,
   requireUpdateSet: true,
   defaultLimit: 50,
@@ -24,6 +26,16 @@ function jsonResponse(body: unknown, status = 200, headers: Record<string, strin
 
 function clientWith(fetchFn: FetchFn, overrides: Partial<Config> = {}): SnClient {
   return new SnClient({ ...cfg, ...overrides }, undefined, fetchFn);
+}
+
+// Session mode with the file read stubbed out — sessionAuth itself is covered
+// in auth.test.ts; here only the client's session-aware behavior matters.
+function sessionClient(fetchFn: FetchFn): SnClient {
+  return new SnClient(
+    { ...cfg, authMode: 'session', sessionFile: '/tmp/session.json' },
+    () => ({ Cookie: 'JSESSIONID=ABC', 'X-UserToken': 'ck-123' }),
+    fetchFn,
+  );
 }
 
 describe('SnClient.queryTable', () => {
@@ -144,6 +156,39 @@ describe('SnClient error normalization', () => {
   it('flags non-JSON success bodies as a possible SSO/MFA redirect', async () => {
     const fetchFn = vi.fn(async () => new Response('<html>portal</html>', { status: 200 }));
     await expect(clientWith(fetchFn).queryTable('incident')).rejects.toThrow(/SSO\/MFA redirect/);
+  });
+
+  it('points 401s at the session, not at Basic Auth roles, in session mode', async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({ error: { message: 'User Not Authenticated' } }, 401),
+    );
+    await expect(sessionClient(fetchFn).queryTable('incident')).rejects.toMatchObject({
+      status: 401,
+      detail: expect.stringContaining('SSO session has expired'),
+    });
+    await expect(sessionClient(fetchFn).queryTable('incident')).rejects.not.toMatchObject({
+      detail: expect.stringContaining('snc_basic_auth_api_access'),
+    });
+  });
+
+  it('reads a non-JSON body as an expired session in session mode', async () => {
+    const fetchFn = vi.fn(async () => new Response('<html>login</html>', { status: 200 }));
+    await expect(sessionClient(fetchFn).queryTable('incident')).rejects.toThrow(
+      /session has most likely expired/,
+    );
+  });
+
+  it('surfaces an auth-strategy failure as-is, without retrying', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse({ result: [] }));
+    const client = new SnClient(
+      cfg,
+      () => {
+        throw new SnApiError({ status: 0, message: 'The session file "x" is not valid JSON' });
+      },
+      fetchFn,
+    );
+    await expect(client.queryTable('incident')).rejects.toThrow(/not valid JSON/);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   it('wraps network failures in SnApiError', async () => {

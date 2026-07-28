@@ -1,6 +1,6 @@
 import type { Config } from '../config.js';
 import { SnApiError } from '../errors.js';
-import { basicAuth, type AuthStrategy } from './auth.js';
+import { authFor, type AuthStrategy } from './auth.js';
 
 export type FetchFn = typeof globalThis.fetch;
 
@@ -71,7 +71,7 @@ function refValue(v: { value: string } | string | undefined): string {
 export class SnClient {
   constructor(
     private readonly cfg: Config,
-    private readonly auth: AuthStrategy = basicAuth,
+    private readonly auth: AuthStrategy = authFor(cfg),
     private readonly fetchFn: FetchFn = globalThis.fetch,
   ) {}
 
@@ -84,13 +84,17 @@ export class SnClient {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
 
+    // Resolved once per request, outside the try: a broken session file is a
+    // configuration error, not a network error, and must not be retried.
+    const authHeaders = this.auth(this.cfg);
+
     for (let attempt = 1; ; attempt++) {
       let res: Response;
       try {
         res = await this.fetchFn(url, {
           method: opts.method ?? 'GET',
           headers: {
-            ...this.auth(this.cfg),
+            ...authHeaders,
             Accept: 'application/json',
             ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           },
@@ -118,7 +122,7 @@ export class SnClient {
         } catch {
           throw new SnApiError({
             status: res.status,
-            message: `Non-JSON response (status ${res.status}); possible SSO/MFA redirect instead of Basic Auth`,
+            message: this.nonJsonMessage(res.status),
             detail: text.slice(0, 300),
           });
         }
@@ -136,10 +140,7 @@ export class SnClient {
       const body = JSON.parse(text) as { error?: { message?: string; detail?: string } };
       let detail = body.error?.detail ?? undefined;
       if (res.status === 401) {
-        const hint =
-          'If the credentials are correct, verify the instance user setup: the user needs the ' +
-          '"snc_basic_auth_api_access" role and internal_integration_user=true (see README, ' +
-          '"Instance user setup").';
+        const hint = this.unauthorizedHint();
         detail = detail ? `${detail} — ${hint}` : hint;
       }
       return new SnApiError({
@@ -150,10 +151,40 @@ export class SnClient {
     } catch {
       return new SnApiError({
         status: res.status,
-        message: `Non-JSON response (status ${res.status}); possible SSO/MFA redirect instead of Basic Auth`,
+        message: this.nonJsonMessage(res.status),
         detail: text.slice(0, 300),
       });
     }
+  }
+
+  /**
+   * A non-JSON body almost always means an HTML login page: the instance
+   * bounced the request to its identity provider instead of serving the API.
+   */
+  private nonJsonMessage(status: number): string {
+    if (this.cfg.authMode === 'session') {
+      return (
+        `Non-JSON response (status ${status}); the SSO session has most likely expired — ` +
+        `recapture it into "${this.cfg.sessionFile}"`
+      );
+    }
+    return `Non-JSON response (status ${status}); possible SSO/MFA redirect instead of Basic Auth`;
+  }
+
+  private unauthorizedHint(): string {
+    if (this.cfg.authMode === 'session') {
+      return (
+        'Session auth: the SSO session has expired, or "cookie" and "userToken" (g_ck) are ' +
+        'not from the same browser session — ServiceNow requires both on every request, ' +
+        `reads included. Recapture them into "${this.cfg.sessionFile}" (see README, ` +
+        '"SSO session mode").'
+      );
+    }
+    return (
+      'If the credentials are correct, verify the instance user setup: the user needs the ' +
+      '"snc_basic_auth_api_access" role and internal_integration_user=true (see README, ' +
+      '"Instance user setup").'
+    );
   }
 
   private backoffMs(res: Response, attempt: number): number {

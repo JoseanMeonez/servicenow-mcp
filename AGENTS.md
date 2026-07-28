@@ -11,24 +11,24 @@ as tools, with an in-process update-set write gate. TypeScript ESM, `@modelconte
 
 ## Architecture map
 
-| Path                     | Responsibility                                                                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `src/index.ts`           | stdio entry: load env → config → client → server. Fatal errors to stderr, exit 1                                                |
-| `src/config.ts`          | Env parsing. Fail fast with ALL problems aggregated in one `ConfigError`                                                        |
-| `src/errors.ts`          | `SnApiError` + `toToolErrorResult()` — the only place tool error results are shaped                                             |
-| `src/client/auth.ts`     | `AuthStrategy` = function returning headers. v1: `basicAuth`. Extend here for OAuth/session                                     |
-| `src/client/snClient.ts` | REST client: retry (429/5xx, Retry-After), pagination (Link/X-Total-Count), timeout, error normalization, schema hierarchy walk |
-| `src/gate.ts`            | `getCurrentUpdateSet` / `assertWritable` / `setCurrentUpdateSet` / `assertPrecheckToken` — the write gate                       |
-| `src/docs/token.ts`      | HMAC-SHA256 precheck token sign/verify (`node:crypto`, per-process secret, ~10 min TTL)                                         |
-| `src/docs/precheck.ts`   | `analyzePrecheck(table, operation)` — risk rules + best-practice matching + token issuance                                      |
-| `src/docs/llmsIndex.ts`  | Fetch/parse/search the `ServiceNow/ServiceNowDocs` `llms.txt` index (injectable `fetchFn`)                                      |
-| `src/docs/fetchDoc.ts`   | Fetch a single doc's markdown by path, with attribution and structured errors (injectable `fetchFn`)                            |
-| `src/docs/bestPractices/*.ts` | Curated, authored-in-repo best-practice content (`BEST_PRACTICES: BestPracticeEntry[]`)                                    |
-| `src/tools/*.ts`         | One module per domain; each exports `register*Tools(server, client, cfg)`                                                       |
-| `src/server.ts`          | `buildServer(cfg, client)`: read tools always; write tools ONLY when `cfg.allowWrites`                                          |
-| `test/unit/`             | Unit tests with injected fake `fetch` (no network)                                                                              |
-| `test/integration/`      | Real MCP client ↔ server over `InMemoryTransport`, mocked `SnClient`                                                            |
-| `test/live/`             | Env-gated smoke tests against a real instance; never mutate data                                                                |
+| Path                          | Responsibility                                                                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/index.ts`                | stdio entry: load env → config → client → server. Fatal errors to stderr, exit 1                                                               |
+| `src/config.ts`               | Env parsing. Fail fast with ALL problems aggregated in one `ConfigError`                                                                       |
+| `src/errors.ts`               | `SnApiError` + `toToolErrorResult()` — the only place tool error results are shaped                                                            |
+| `src/client/auth.ts`          | `AuthStrategy` = function returning headers: `basicAuth` and `sessionAuth` (SSO session file), picked by `authFor(cfg)`. Extend here for OAuth |
+| `src/client/snClient.ts`      | REST client: retry (429/5xx, Retry-After), pagination (Link/X-Total-Count), timeout, error normalization, schema hierarchy walk                |
+| `src/gate.ts`                 | `getCurrentUpdateSet` / `assertWritable` / `setCurrentUpdateSet` / `assertPrecheckToken` — the write gate                                      |
+| `src/docs/token.ts`           | HMAC-SHA256 precheck token sign/verify (`node:crypto`, per-process secret, ~10 min TTL)                                                        |
+| `src/docs/precheck.ts`        | `analyzePrecheck(table, operation)` — risk rules + best-practice matching + token issuance                                                     |
+| `src/docs/llmsIndex.ts`       | Fetch/parse/search the `ServiceNow/ServiceNowDocs` `llms.txt` index (injectable `fetchFn`)                                                     |
+| `src/docs/fetchDoc.ts`        | Fetch a single doc's markdown by path, with attribution and structured errors (injectable `fetchFn`)                                           |
+| `src/docs/bestPractices/*.ts` | Curated, authored-in-repo best-practice content (`BEST_PRACTICES: BestPracticeEntry[]`)                                                        |
+| `src/tools/*.ts`              | One module per domain; each exports `register*Tools(server, client, cfg)`                                                                      |
+| `src/server.ts`               | `buildServer(cfg, client)`: read tools always; write tools ONLY when `cfg.allowWrites`                                                         |
+| `test/unit/`                  | Unit tests with injected fake `fetch` (no network)                                                                                             |
+| `test/integration/`           | Real MCP client ↔ server over `InMemoryTransport`, mocked `SnClient`                                                                           |
+| `test/live/`                  | Env-gated smoke tests against a real instance; never mutate data                                                                               |
 
 ## Hard rules (non-negotiable)
 
@@ -44,9 +44,11 @@ as tools, with an in-process update-set write gate. TypeScript ESM, `@modelconte
    `servicenow_delete_record` keeps `confirm: z.literal(true)`.
 3. **No hidden state.** The server holds no caches, no sessions, no cross-call memory.
    If a cache is ever justified, it must be explicit, on-disk, per-instance, and opt-in.
-4. **Credentials never enter git or code.** They live in `.env` / `instances/*.env`
-   (both gitignored) or the MCP client's `env` block. Never interpolate passwords into
-   errors, logs, or test fixtures. Quote passwords containing `#`, `;`, or spaces.
+4. **Credentials never enter git or code.** They live in `.env` / `instances/*.env` /
+   `SN_SESSION_FILE` (all gitignored) or the MCP client's `env` block. Never interpolate
+   passwords, cookies, or `g_ck` tokens into errors, logs, or test fixtures — error hints
+   name the _path_ of the session file, never its contents. Quote passwords containing
+   `#`, `;`, or spaces.
 5. **Every tool result follows the convention**: human-readable `content` text +
    `structuredContent`; failures go through `toToolErrorResult()` (`isError: true`).
    Do not hand-roll error shapes in tool handlers.
@@ -79,7 +81,7 @@ as tools, with an in-process update-set write gate. TypeScript ESM, `@modelconte
 
 ## Connecting an instance (checklist)
 
-For every new instance/user, the API user must have:
+With `SN_AUTH_MODE=basic` (default), for every new instance/user the API user must have:
 
 1. Roles: `snc_basic_auth_api_access` (mandatory for Basic Auth REST) + data-access roles
    (least privilege at work; `admin` acceptable on a personal dev instance).
@@ -88,6 +90,12 @@ For every new instance/user, the API user must have:
 
 Symptom when missing: `401 "User is not authenticated"` with correct credentials.
 The client appends this hint to every 401 automatically.
+
+With `SN_AUTH_MODE=session` none of the above applies: the request carries the user's own
+SSO web session, read from `SN_SESSION_FILE` on every request. `Cookie` **and**
+`X-UserToken` (g_ck) are both mandatory on every call, reads included — verified live:
+either one alone answers `401 User is not authenticated`. There is no OAuth path — inbound
+OAuth needs an Application Registry entry. See README, "SSO session mode".
 
 Multi-instance: one `.mcp.json` entry per instance using Node's native flag —
 `node --env-file=instances/<name>.env dist/index.js`. See README "Multiple instances".

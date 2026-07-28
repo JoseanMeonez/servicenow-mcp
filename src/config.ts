@@ -1,7 +1,16 @@
+/**
+ * `basic` sends username/password. `session` reuses a ServiceNow web session
+ * established through SSO — for instances where Basic Auth is blocked and no
+ * OAuth Application Registry entry can be created.
+ */
+export type AuthMode = 'basic' | 'session';
+
 export interface Config {
   baseUrl: string;
+  authMode: AuthMode;
   username: string;
   password: string;
+  sessionFile: string;
   allowWrites: boolean;
   requireUpdateSet: boolean;
   defaultLimit: number;
@@ -30,6 +39,13 @@ function parseBool(
   if (raw === 'false' || raw === '0') return false;
   problems.push(`${name} must be "true" or "false", got "${raw}"`);
   return fallback;
+}
+
+function parseAuthMode(raw: string | undefined, problems: string[]): AuthMode {
+  if (raw === undefined || raw === '') return 'basic';
+  if (raw === 'basic' || raw === 'session') return raw;
+  problems.push(`SN_AUTH_MODE must be "basic" or "session", got "${raw}"`);
+  return 'basic';
 }
 
 function parsePositiveInt(
@@ -66,10 +82,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
   }
 
+  const authMode = parseAuthMode(env.SN_AUTH_MODE, problems);
+
+  // Required in both modes: it is how the write gate resolves whose current
+  // update set to read, not only a Basic Auth credential.
   const username = env.SN_USERNAME ?? '';
   if (!username) problems.push('SN_USERNAME is required');
+
   const password = env.SN_PASSWORD ?? '';
-  if (!password) problems.push('SN_PASSWORD is required');
+  if (authMode === 'basic' && !password) {
+    problems.push('SN_PASSWORD is required when SN_AUTH_MODE=basic');
+  }
+
+  const sessionFile = env.SN_SESSION_FILE ?? '';
+  if (authMode === 'session' && !sessionFile) {
+    problems.push('SN_SESSION_FILE is required when SN_AUTH_MODE=session');
+  }
 
   const allowWrites = parseBool(env.SN_MCP_ALLOW_WRITES, false, 'SN_MCP_ALLOW_WRITES', problems);
   const requireUpdateSet = parseBool(
@@ -113,8 +141,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   return {
     baseUrl,
+    authMode,
     username,
     password,
+    sessionFile,
     allowWrites,
     requireUpdateSet,
     defaultLimit,

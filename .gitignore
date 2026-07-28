@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
+.session.json
+*.session.json
 *.local.*
 coverage/
 instances/
